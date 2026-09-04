@@ -1,992 +1,230 @@
 -- ==========================================
--- MAIN SYSTEM v3.0 - Full Features
+-- COMPLETE FEATURES - No Key System
 -- ==========================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local TweenService = game:GetService("TweenService")
-local HttpService = game:GetService("HttpService")
 local Workspace = game:GetService("Workspace")
 
-local localPlayer = Players.LocalPlayer
-local playerGui = localPlayer:WaitForChild("PlayerGui")
-local Mouse = localPlayer:GetMouse()
+local player = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
 
-local isUnloading = false
-local validated = false
-local featuresLoaded = false
+print("Features loaded!")
 
 -- ==========================================
--- UI CREATION
+-- AUTO PARRY
 -- ==========================================
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "System_" .. tostring(math.random(10000, 99999))
-screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
-screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.DisplayOrder = 1
-screenGui.Enabled = false
-screenGui.Parent = playerGui
-
-local function animateUI(element, properties, duration)
-    if not element then return end
-    local tween = TweenService:Create(element, TweenInfo.new(duration or 0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), properties)
-    tween:Play()
-    return tween
+local function calculateBallRadius(speed)
+    local minR = 15
+    local maxR = 90
+    local sFactor = math.clamp(speed / 300, 0, 1)
+    return minR + (maxR - minR) * (sFactor * sFactor * 0.7)
 end
 
--- ==========================================
--- KEY UI
--- ==========================================
-local keyGui = Instance.new("Frame")
-keyGui.Size = UDim2.new(0, 380, 0, 260)
-keyGui.Position = UDim2.new(0.5, -190, 0.5, -130)
-keyGui.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-keyGui.BackgroundTransparency = 0.15
-keyGui.BorderSizePixel = 0
-keyGui.Parent = screenGui
-Instance.new("UICorner", keyGui).CornerRadius = UDim.new(0, 8)
+local ballStates = {}
+local lastParryClock = 0
+local pendingQueue = {}
+local isProcessing = false
 
-local keyTitle = Instance.new("TextLabel")
-keyTitle.Size = UDim2.new(1, 0, 0, 30)
-keyTitle.Position = UDim2.new(0, 0, 0, 20)
-keyTitle.BackgroundTransparency = 1
-keyTitle.TextColor3 = Color3.fromRGB(200, 200, 210)
-keyTitle.TextSize = 16
-keyTitle.Font = Enum.Font.GothamBold
-keyTitle.Text = "AUTHENTICATION"
-keyTitle.Parent = keyGui
-
-local keySubtitle = Instance.new("TextLabel")
-keySubtitle.Size = UDim2.new(1, 0, 0, 18)
-keySubtitle.Position = UDim2.new(0, 0, 0, 55)
-keySubtitle.BackgroundTransparency = 1
-keySubtitle.TextColor3 = Color3.fromRGB(160, 160, 175)
-keySubtitle.TextSize = 11
-keySubtitle.Font = Enum.Font.Gotham
-keySubtitle.Text = "Enter your access key"
-keySubtitle.Parent = keyGui
-
-local keyBox = Instance.new("TextBox")
-keyBox.Size = UDim2.new(0, 320, 0, 38)
-keyBox.Position = UDim2.new(0.5, -160, 0, 85)
-keyBox.BackgroundColor3 = Color3.fromRGB(38, 38, 42)
-keyBox.BackgroundTransparency = 0.15
-keyBox.TextColor3 = Color3.fromRGB(220, 220, 230)
-keyBox.Text = ""
-keyBox.PlaceholderText = "Enter your key..."
-keyBox.PlaceholderColor3 = Color3.fromRGB(130, 130, 150)
-keyBox.TextSize = 13
-keyBox.Font = Enum.Font.Gotham
-keyBox.ClearTextOnFocus = false
-keyBox.Parent = keyGui
-Instance.new("UICorner", keyBox).CornerRadius = UDim.new(0, 4)
-
-local submitKeyBtn = Instance.new("TextButton")
-submitKeyBtn.Size = UDim2.new(0, 320, 0, 36)
-submitKeyBtn.Position = UDim2.new(0.5, -160, 0, 133)
-submitKeyBtn.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
-submitKeyBtn.BackgroundTransparency = 0.15
-submitKeyBtn.TextColor3 = Color3.fromRGB(220, 255, 240)
-submitKeyBtn.TextSize = 13
-submitKeyBtn.Font = Enum.Font.GothamBold
-submitKeyBtn.Text = "VALIDATE"
-submitKeyBtn.Parent = keyGui
-Instance.new("UICorner", submitKeyBtn).CornerRadius = UDim.new(0, 4)
-
--- ==========================================
--- LOADING SCREEN
--- ==========================================
-local loadGui = Instance.new("Frame")
-loadGui.Size = UDim2.new(0, 380, 0, 200)
-loadGui.Position = UDim2.new(0.5, -190, 0.5, -100)
-loadGui.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-loadGui.BackgroundTransparency = 0.15
-loadGui.BorderSizePixel = 0
-loadGui.Visible = false
-loadGui.Parent = screenGui
-Instance.new("UICorner", loadGui).CornerRadius = UDim.new(0, 8)
-
-local loadTitle = Instance.new("TextLabel")
-loadTitle.Size = UDim2.new(1, 0, 0, 30)
-loadTitle.Position = UDim2.new(0, 0, 0, 35)
-loadTitle.BackgroundTransparency = 1
-loadTitle.TextColor3 = Color3.fromRGB(200, 200, 210)
-loadTitle.TextSize = 18
-loadTitle.Font = Enum.Font.GothamBold
-loadTitle.Text = "INITIALIZING"
-loadTitle.Parent = loadGui
-
-local loadSubtitle = Instance.new("TextLabel")
-loadSubtitle.Size = UDim2.new(1, 0, 0, 18)
-loadSubtitle.Position = UDim2.new(0, 0, 0, 70)
-loadSubtitle.BackgroundTransparency = 1
-loadSubtitle.TextColor3 = Color3.fromRGB(160, 160, 175)
-loadSubtitle.TextSize = 11
-loadSubtitle.Font = Enum.Font.Gotham
-loadSubtitle.Text = "Loading modules..."
-loadSubtitle.Parent = loadGui
-
-local barBg = Instance.new("Frame")
-barBg.Size = UDim2.new(0, 300, 0, 3)
-barBg.Position = UDim2.new(0.5, -150, 0, 105)
-barBg.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
-barBg.BackgroundTransparency = 0.5
-barBg.BorderSizePixel = 0
-barBg.Parent = loadGui
-Instance.new("UICorner", barBg).CornerRadius = UDim.new(1, 0)
-
-local barFill = Instance.new("Frame")
-barFill.Size = UDim2.new(0, 0, 1, 0)
-barFill.BackgroundColor3 = Color3.fromRGB(0, 200, 140)
-barFill.BackgroundTransparency = 0.1
-barFill.BorderSizePixel = 0
-barFill.Parent = barBg
-Instance.new("UICorner", barFill).CornerRadius = UDim.new(1, 0)
-
-local loadPercent = Instance.new("TextLabel")
-loadPercent.Size = UDim2.new(1, 0, 0, 18)
-loadPercent.Position = UDim2.new(0, 0, 0, 120)
-loadPercent.BackgroundTransparency = 1
-loadPercent.TextColor3 = Color3.fromRGB(130, 130, 155)
-loadPercent.TextSize = 10
-loadPercent.Font = Enum.Font.Gotham
-loadPercent.Text = "0%"
-loadPercent.Parent = loadGui
-
--- ==========================================
--- MAIN WINDOW
--- ==========================================
-local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 520, 0, 380)
-mainFrame.Position = UDim2.new(0.5, -260, 0.4, -190)
-mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-mainFrame.BackgroundTransparency = 0.15
-mainFrame.BorderSizePixel = 0
-mainFrame.Active = true
-mainFrame.Draggable = true
-mainFrame.Visible = false
-mainFrame.Parent = screenGui
-Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 8)
-
--- TOP BAR
-local topBar = Instance.new("Frame")
-topBar.Size = UDim2.new(1, 0, 0, 36)
-topBar.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-topBar.BackgroundTransparency = 0.15
-topBar.BorderSizePixel = 0
-topBar.Parent = mainFrame
-Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 8)
-
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(0, 400, 1, 0)
-titleLabel.Position = UDim2.new(0, 12, 0, 0)
-titleLabel.BackgroundTransparency = 1
-titleLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
-titleLabel.TextSize = 13
-titleLabel.Font = Enum.Font.GothamBold
-titleLabel.Text = "SYSTEM v3.0"
-titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-titleLabel.Parent = topBar
-
-local function createWindowButton(parent, text, posX, color)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, 30, 0, 30)
-    btn.Position = UDim2.new(1, posX, 0, 3)
-    btn.BackgroundTransparency = 1
-    btn.TextColor3 = color or Color3.fromRGB(180, 180, 195)
-    btn.TextSize = 14
-    btn.Font = Enum.Font.GothamBold
-    btn.Text = text
-    btn.Parent = parent
-    return btn
-end
-
-local minimizeBtn = createWindowButton(topBar, "─", -30)
-local closeBtn = createWindowButton(topBar, "✕", -60, Color3.fromRGB(220, 80, 80))
-
-local function unloadAll()
-    if isUnloading then return end
-    isUnloading = true
+local function executeParry()
+    local now = os.clock()
+    local jitter = math.random(10, 45) / 1000
+    if now - lastParryClock < (0.09 + jitter) then return false end
+    lastParryClock = now
     pcall(function()
-        if screenGui then screenGui:Destroy() end
-        if espGui then espGui:Destroy() end
-        if haloFolder then haloFolder:Destroy() end
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+        task.wait(0.001)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+    end)
+    return true
+end
+
+local function processQueue()
+    if isProcessing then return end
+    isProcessing = true
+    task.spawn(function()
+        while #pendingQueue > 0 do
+            table.remove(pendingQueue, 1)
+            executeParry()
+            if #pendingQueue > 0 then
+                task.wait(0.002)
+            end
+        end
+        isProcessing = false
     end)
 end
 
-closeBtn.MouseButton1Click:Connect(unloadAll)
+local function queueParry()
+    if #pendingQueue >= 10 then return end
+    table.insert(pendingQueue, #pendingQueue + 1)
+    processQueue()
+end
 
-minimizeBtn.MouseButton1Click:Connect(function()
-    if mainFrame then mainFrame.Visible = false end
+-- ==========================================
+-- ESP SYSTEM
+-- ==========================================
+local espGui = Instance.new("ScreenGui")
+espGui.Name = "Overlay"
+espGui.ResetOnSpawn = false
+espGui.IgnoreGuiInset = true
+espGui.Parent = player:WaitForChild("PlayerGui")
+
+local espContainers = {}
+
+local function setupPlayerEsp(plr)
+    if plr == player then return end
+    local container = Instance.new("Folder")
+    container.Name = "PlayerESP"
+    container.Parent = espGui
+    
+    local box = Instance.new("Frame")
+    box.BackgroundTransparency = 1
+    box.Visible = false
+    box.Parent = container
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(0, 200, 150)
+    stroke.Thickness = 1
+    stroke.Parent = box
+    
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Size = UDim2.new(0, 200, 0, 15)
+    nameLabel.AnchorPoint = Vector2.new(0.5, 1)
+    nameLabel.TextColor3 = Color3.fromRGB(220, 220, 230)
+    nameLabel.TextSize = 13
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextStrokeTransparency = 0.5
+    nameLabel.Visible = false
+    nameLabel.Parent = container
+    
+    espContainers[plr] = {Box = box, Name = nameLabel}
+end
+
+for _, p in ipairs(Players:GetPlayers()) do setupPlayerEsp(p) end
+Players.PlayerAdded:Connect(setupPlayerEsp)
+Players.PlayerRemoving:Connect(function(p)
+    if espContainers[p] then
+        if espContainers[p].Box and espContainers[p].Box.Parent then
+            espContainers[p].Box.Parent:Destroy()
+        end
+        espContainers[p] = nil
+    end
 end)
 
--- SIDEBAR
-local sidebar = Instance.new("Frame")
-sidebar.Size = UDim2.new(0, 130, 1, -44)
-sidebar.Position = UDim2.new(0, 8, 0, 40)
-sidebar.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-sidebar.BackgroundTransparency = 0.15
-sidebar.BorderSizePixel = 0
-sidebar.Parent = mainFrame
-Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 4)
-
--- CONTENT AREAS
-local contentArea = Instance.new("Frame")
-contentArea.Size = UDim2.new(1, -155, 1, -44)
-contentArea.Position = UDim2.new(0, 142, 0, 40)
-contentArea.BackgroundTransparency = 1
-contentArea.Parent = mainFrame
-
-local mainContainer = Instance.new("ScrollingFrame")
-mainContainer.Size = UDim2.new(1, 0, 1, 0)
-mainContainer.BackgroundTransparency = 1
-mainContainer.Visible = true
-mainContainer.Parent = contentArea
-
-local visualsContainer = Instance.new("ScrollingFrame")
-visualsContainer.Size = UDim2.new(1, 0, 1, 0)
-visualsContainer.BackgroundTransparency = 1
-visualsContainer.Visible = false
-visualsContainer.Parent = contentArea
-
-local settingsContainer = Instance.new("ScrollingFrame")
-settingsContainer.Size = UDim2.new(1, 0, 1, 0)
-settingsContainer.BackgroundTransparency = 1
-settingsContainer.Visible = false
-settingsContainer.Parent = contentArea
-
 -- ==========================================
--- TOGGLE CREATOR
+-- MAIN LOOP
 -- ==========================================
-local function createToggle(parent, name, posY, callback)
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(0.95, 0, 0, 34)
-    container.Position = UDim2.new(0, 0, 0, posY)
-    container.BackgroundTransparency = 1
-    container.Parent = parent
-    
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.7, 0, 1, 0)
-    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
-    btn.BackgroundTransparency = 0.3
-    btn.TextColor3 = Color3.fromRGB(210, 210, 220)
-    btn.TextSize = 12
-    btn.Font = Enum.Font.GothamMedium
-    btn.Text = name
-    btn.TextXAlignment = Enum.TextXAlignment.Left
-    btn.Parent = container
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
-    
-    local toggle = Instance.new("TextButton")
-    toggle.Size = UDim2.new(0.25, 0, 0.7, 0)
-    toggle.Position = UDim2.new(0.73, 0, 0.15, 0)
-    toggle.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
-    toggle.BackgroundTransparency = 0.3
-    toggle.TextColor3 = Color3.fromRGB(210, 210, 220)
-    toggle.TextSize = 10
-    toggle.Font = Enum.Font.GothamMedium
-    toggle.Text = "OFF"
-    toggle.Parent = container
-    Instance.new("UICorner", toggle).CornerRadius = UDim.new(0, 3)
-    
-    local enabled = false
-    
-    local function toggleFunc()
-        enabled = not enabled
-        toggle.Text = enabled and "ON" or "OFF"
-        toggle.BackgroundColor3 = enabled and Color3.fromRGB(0, 180, 120) or Color3.fromRGB(40, 40, 45)
-        toggle.BackgroundTransparency = enabled and 0.2 or 0.3
-        toggle.TextColor3 = enabled and Color3.fromRGB(220, 255, 240) or Color3.fromRGB(210, 210, 220)
-        if callback then callback(enabled) end
-    end
-    
-    btn.MouseButton1Click:Connect(toggleFunc)
-    toggle.MouseButton1Click:Connect(toggleFunc)
-    
-    return {container = container, btn = btn, toggle = toggle, enabled = enabled, toggleFunc = toggleFunc}
-end
+local frameCounter = 0
 
--- ==========================================
--- CREATE TOGGLES
--- ==========================================
-local autoParryToggle = createToggle(mainContainer, "AUTO PARRY", 8)
-local spamToggle = createToggle(mainContainer, "SPAM (HOLD T)", 46)
-local haloToggle = createToggle(visualsContainer, "RING VISUAL", 8)
-local espBoxToggle = createToggle(visualsContainer, "ESP BOXES", 46)
-local espNameToggle = createToggle(visualsContainer, "ESP NAMES", 84)
-local espDistToggle = createToggle(visualsContainer, "ESP DISTANCE", 122)
-
--- SETTINGS
-local toggleKeyBtn = Instance.new("TextButton")
-toggleKeyBtn.Size = UDim2.new(0.95, 0, 0, 34)
-toggleKeyBtn.Position = UDim2.new(0, 0, 0, 8)
-toggleKeyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
-toggleKeyBtn.BackgroundTransparency = 0.3
-toggleKeyBtn.TextColor3 = Color3.fromRGB(210, 210, 220)
-toggleKeyBtn.TextSize = 12
-toggleKeyBtn.Font = Enum.Font.GothamMedium
-toggleKeyBtn.Text = "TOGGLE: [ RIGHTSHIFT ]"
-toggleKeyBtn.TextXAlignment = Enum.TextXAlignment.Left
-toggleKeyBtn.Parent = settingsContainer
-Instance.new("UICorner", toggleKeyBtn).CornerRadius = UDim.new(0, 4)
-
-local hideKey = Enum.KeyCode.RightShift
-
-local unloadBtn = Instance.new("TextButton")
-unloadBtn.Size = UDim2.new(0.95, 0, 0, 34)
-unloadBtn.Position = UDim2.new(0, 0, 0, 50)
-unloadBtn.BackgroundColor3 = Color3.fromRGB(160, 40, 50)
-unloadBtn.BackgroundTransparency = 0.3
-unloadBtn.TextColor3 = Color3.fromRGB(220, 120, 120)
-unloadBtn.TextSize = 12
-unloadBtn.Font = Enum.Font.GothamMedium
-unloadBtn.Text = "UNLOAD"
-unloadBtn.TextXAlignment = Enum.TextXAlignment.Left
-unloadBtn.Parent = settingsContainer
-Instance.new("UICorner", unloadBtn).CornerRadius = UDim.new(0, 4)
-unloadBtn.MouseButton1Click:Connect(unloadAll)
-
--- ==========================================
--- TABS
--- ==========================================
-local function createTab(name, posY)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0.9, 0, 0, 32)
-    btn.Position = UDim2.new(0.05, 0, 0, posY)
-    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
-    btn.BackgroundTransparency = 0.3
-    btn.TextColor3 = Color3.fromRGB(170, 170, 185)
-    btn.TextSize = 12
-    btn.Font = Enum.Font.Gotham
-    btn.Text = name
-    btn.TextXAlignment = Enum.TextXAlignment.Left
-    btn.Parent = sidebar
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
-    return btn
-end
-
-local tabMain = createTab("MAIN", 8)
-local tabVisuals = createTab("VISUALS", 44)
-local tabSettings = createTab("SETTINGS", 80)
-
-local function switchTab(tab)
-    mainContainer.Visible = (tab == "main")
-    visualsContainer.Visible = (tab == "visuals")
-    settingsContainer.Visible = (tab == "settings")
+RunService.Heartbeat:Connect(function(heartbeatDt)
+    frameCounter = frameCounter + 1
+    if frameCounter % math.random(12, 50) == 0 then return end
     
-    local tabs = {tabMain, tabVisuals, tabSettings}
-    local states = {"main", "visuals", "settings"}
-    for i, btn in ipairs(tabs) do
-        if states[i] == tab then
-            btn.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
-            btn.BackgroundTransparency = 0.2
-            btn.TextColor3 = Color3.fromRGB(220, 255, 240)
-        else
-            btn.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
-            btn.BackgroundTransparency = 0.3
-            btn.TextColor3 = Color3.fromRGB(170, 170, 185)
-        end
-    end
-end
-
-tabMain.MouseButton1Click:Connect(function() switchTab("main") end)
-tabVisuals.MouseButton1Click:Connect(function() switchTab("visuals") end)
-tabSettings.MouseButton1Click:Connect(function() switchTab("settings") end)
-switchTab("main")
-
--- ==========================================
--- KEY VALIDATION
--- ==========================================
-local function validateKey(key)
-    if not key or key == "" then return false end
-    
-    local url = "https://zen-key-api.ea0066777.workers.dev/validate?key=" .. HttpService:UrlEncode(key)
-    
-    task.wait(math.random(300, 800) / 1000)
-    
-    local success, response = pcall(function()
-        return game:HttpGet(url, true)
-    end)
-    
-    if not success then return false end
-    
-    local decodeSuccess, data = pcall(function()
-        return HttpService:JSONDecode(response)
-    end)
-    
-    if not decodeSuccess or type(data) ~= "table" then return false end
-    return data.valid == true
-end
-
-submitKeyBtn.MouseButton1Click:Connect(function()
-    local key = keyBox.Text
-    if key == "" then
-        keyBox.PlaceholderText = "Enter a key"
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then
         return
     end
     
-    submitKeyBtn.Text = "CHECKING..."
-    animateUI(submitKeyBtn, {BackgroundColor3 = Color3.fromRGB(200, 180, 50)}, 0.3)
+    local hrp = character.HumanoidRootPart
+    local hrpPos = hrp.Position
+    local dt = math.max(heartbeatDt, 1/240)
     
-    local isValid = validateKey(key)
-    
-    if isValid then
-        submitKeyBtn.Text = "SUCCESS"
-        animateUI(submitKeyBtn, {BackgroundColor3 = Color3.fromRGB(0, 200, 140)}, 0.3)
-        task.wait(0.5)
-        
-        keyGui.Visible = false
-        keyGui:Destroy()
-        
-        loadGui.Visible = true
-        animateUI(loadGui, {BackgroundTransparency = 0.15}, 0.4)
-        
-        for i = 1, 30 do
-            local progress = i / 30
-            barFill.Size = UDim2.new(progress, 0, 1, 0)
-            loadPercent.Text = math.floor(progress * 100) .. "%"
-            task.wait(0.05)
-        end
-        
-        task.wait(0.3)
-        loadGui:Destroy()
-        
-        mainFrame.Visible = true
-        mainFrame.BackgroundTransparency = 1
-        animateUI(mainFrame, {BackgroundTransparency = 0.15}, 0.4)
-        
-        validated = true
-        LoadFeatures()
-        
-    else
-        submitKeyBtn.Text = "INVALID"
-        animateUI(submitKeyBtn, {BackgroundColor3 = Color3.fromRGB(200, 50, 50)}, 0.3)
-        task.wait(0.8)
-        submitKeyBtn.Text = "VALIDATE"
-        animateUI(submitKeyBtn, {BackgroundColor3 = Color3.fromRGB(0, 180, 120)}, 0.3)
-        keyBox.Text = ""
-        keyBox.PlaceholderText = "Invalid key"
-    end
-end)
-
--- ==========================================
--- FEATURE LOADER
--- ==========================================
-function LoadFeatures()
-    if featuresLoaded then return end
-    featuresLoaded = true
-    
-    local VirtualInputManager = game:GetService("VirtualInputManager")
-    local Camera = Workspace.CurrentCamera
-    
-    -- ESP GUI
-    local espGui = Instance.new("ScreenGui")
-    espGui.Name = "Overlay_" .. tostring(math.random(10000, 99999))
-    espGui.ResetOnSpawn = false
-    espGui.IgnoreGuiInset = true
-    espGui.DisplayOrder = 2
-    espGui.Parent = playerGui
-    
-    -- HALO
-    local haloFolder = Instance.new("Folder")
-    haloFolder.Name = "Effects_" .. tostring(math.random(10000, 99999))
-    local segments = 32
-    local ringParts = {}
-    
-    for i = 1, segments do
-        local seg = Instance.new("Part")
-        seg.Name = "Ring"
-        seg.Size = Vector3.new(0.6, 0.2, 1.2)
-        seg.Anchored = true
-        seg.CanCollide = false
-        seg.Material = Enum.Material.Neon
-        seg.Color = Color3.fromRGB(0, 200, 150)
-        seg.Transparency = 0.3
-        seg.Parent = haloFolder
-        table.insert(ringParts, seg)
-    end
-    
-    -- ESP
-    local espContainers = {}
-    
-    local function setupPlayerEsp(plr)
-        if plr == localPlayer then return end
-        local container = Instance.new("Folder")
-        container.Name = "Player_" .. tostring(math.random(10000, 99999))
-        container.Parent = espGui
-        
-        local box = Instance.new("Frame")
-        box.BackgroundTransparency = 1
-        box.Visible = false
-        box.Parent = container
-        local stroke = Instance.new("UIStroke")
-        stroke.Color = Color3.fromRGB(0, 200, 150)
-        stroke.Thickness = 1
-        stroke.Parent = box
-        
-        local nameLabel = Instance.new("TextLabel")
-        nameLabel.BackgroundTransparency = 1
-        nameLabel.Size = UDim2.new(0, 200, 0, 15)
-        nameLabel.AnchorPoint = Vector2.new(0.5, 1)
-        nameLabel.TextColor3 = Color3.fromRGB(220, 220, 230)
-        nameLabel.TextSize = 13
-        nameLabel.Font = Enum.Font.GothamBold
-        nameLabel.TextStrokeTransparency = 0.5
-        nameLabel.Visible = false
-        nameLabel.Parent = container
-        
-        local infoLabel = Instance.new("TextLabel")
-        infoLabel.BackgroundTransparency = 1
-        infoLabel.Size = UDim2.new(0, 200, 0, 15)
-        infoLabel.AnchorPoint = Vector2.new(0.5, 0)
-        infoLabel.TextColor3 = Color3.fromRGB(0, 200, 150)
-        infoLabel.TextSize = 11
-        infoLabel.Font = Enum.Font.GothamMedium
-        infoLabel.TextStrokeTransparency = 0.5
-        infoLabel.Visible = false
-        infoLabel.Parent = container
-        
-        espContainers[plr] = {Box = box, Name = nameLabel, Info = infoLabel}
-    end
-    
-    for _, p in ipairs(Players:GetPlayers()) do setupPlayerEsp(p) end
-    Players.PlayerAdded:Connect(setupPlayerEsp)
-    Players.PlayerRemoving:Connect(function(p)
-        if espContainers[p] then
-            if espContainers[p].Box and espContainers[p].Box.Parent then
-                espContainers[p].Box.Parent:Destroy()
-            end
-            espContainers[p] = nil
-        end
-    end)
-    
-    -- TOGGLES
-    local parryEnabled = false
-    local clashEnabled = false
-    local haloEnabled = false
-    local espBoxEnabled = false
-    local espNameEnabled = false
-    local espDistEnabled = false
-    
-    autoParryToggle.toggleFunc = function(state)
-        parryEnabled = state
-        autoParryToggle.toggle.Text = state and "ON" or "OFF"
-        autoParryToggle.toggle.BackgroundColor3 = state and Color3.fromRGB(0, 180, 120) or Color3.fromRGB(40, 40, 45)
-        autoParryToggle.toggle.BackgroundTransparency = state and 0.2 or 0.3
-        autoParryToggle.toggle.TextColor3 = state and Color3.fromRGB(220, 255, 240) or Color3.fromRGB(210, 210, 220)
-    end
-    
-    spamToggle.toggleFunc = function(state)
-        clashEnabled = state
-        spamToggle.toggle.Text = state and "ON" or "OFF"
-        spamToggle.toggle.BackgroundColor3 = state and Color3.fromRGB(0, 180, 120) or Color3.fromRGB(40, 40, 45)
-        spamToggle.toggle.BackgroundTransparency = state and 0.2 or 0.3
-        spamToggle.toggle.TextColor3 = state and Color3.fromRGB(220, 255, 240) or Color3.fromRGB(210, 210, 220)
-    end
-    
-    haloToggle.toggleFunc = function(state)
-        haloEnabled = state
-        haloToggle.toggle.Text = state and "ON" or "OFF"
-        haloToggle.toggle.BackgroundColor3 = state and Color3.fromRGB(0, 180, 120) or Color3.fromRGB(40, 40, 45)
-        haloToggle.toggle.BackgroundTransparency = state and 0.2 or 0.3
-        haloToggle.toggle.TextColor3 = state and Color3.fromRGB(220, 255, 240) or Color3.fromRGB(210, 210, 220)
-        if state then
-            haloFolder.Parent = Workspace
-            for _, seg in ipairs(ringParts) do
-                seg.Position = Vector3.new(0, -1000, 0)
-            end
-        else
-            haloFolder.Parent = nil
-        end
-    end
-    
-    espBoxToggle.toggleFunc = function(state)
-        espBoxEnabled = state
-        espBoxToggle.toggle.Text = state and "ON" or "OFF"
-        espBoxToggle.toggle.BackgroundColor3 = state and Color3.fromRGB(0, 180, 120) or Color3.fromRGB(40, 40, 45)
-        espBoxToggle.toggle.BackgroundTransparency = state and 0.2 or 0.3
-        espBoxToggle.toggle.TextColor3 = state and Color3.fromRGB(220, 255, 240) or Color3.fromRGB(210, 210, 220)
-    end
-    
-    espNameToggle.toggleFunc = function(state)
-        espNameEnabled = state
-        espNameToggle.toggle.Text = state and "ON" or "OFF"
-        espNameToggle.toggle.BackgroundColor3 = state and Color3.fromRGB(0, 180, 120) or Color3.fromRGB(40, 40, 45)
-        espNameToggle.toggle.BackgroundTransparency = state and 0.2 or 0.3
-        espNameToggle.toggle.TextColor3 = state and Color3.fromRGB(220, 255, 240) or Color3.fromRGB(210, 210, 220)
-    end
-    
-    espDistToggle.toggleFunc = function(state)
-        espDistEnabled = state
-        espDistToggle.toggle.Text = state and "ON" or "OFF"
-        espDistToggle.toggle.BackgroundColor3 = state and Color3.fromRGB(0, 180, 120) or Color3.fromRGB(40, 40, 45)
-        espDistToggle.toggle.BackgroundTransparency = state and 0.2 or 0.3
-        espDistToggle.toggle.TextColor3 = state and Color3.fromRGB(220, 255, 240) or Color3.fromRGB(210, 210, 220)
-    end
-    
-    -- PARRY ENGINE
-    local function calculateBallRadius(speed)
-        local minR = 15
-        local maxR = 90
-        local sFactor = math.clamp(speed / 300, 0, 1)
-        return minR + (maxR - minR) * (sFactor * sFactor * 0.7)
-    end
-    
-    local ballStates = {}
-    local lastParryClock = 0
-    local pendingQueue = {}
-    local isProcessing = false
-    
-    local function executeParry()
-        local now = os.clock()
-        local jitter = math.random(10, 45) / 1000
-        local randomDelay = math.random(0, 6) / 1000
-        
-        if now - lastParryClock < (0.09 + jitter) then return false end
-        lastParryClock = now
-        
-        local method = math.random(1, 4)
-        local success = pcall(function()
-            if method == 1 then
-                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-                task.wait(0.001 + randomDelay)
-                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-            elseif method == 2 then
-                if keypress and keyrelease then
-                    keypress(0x46)
-                    task.wait(0.001 + randomDelay)
-                    keyrelease(0x46)
-                else
-                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-                    task.wait(0.001 + randomDelay)
-                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-                end
-            elseif method == 3 then
-                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-                task.wait(0.001 + randomDelay)
-                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-                task.wait(0.001 + randomDelay)
-                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-                task.wait(0.001 + randomDelay)
-                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-            else
-                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-                task.wait(0.002 + randomDelay)
-                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-            end
-            if math.random() > 0.95 then
-                task.wait(0.001)
-                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-                task.wait(0.001)
-                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-            end
-        end)
-        return success
-    end
-    
-    local function processQueue()
-        if isProcessing then return end
-        isProcessing = true
-        task.spawn(function()
-            while #pendingQueue > 0 do
-                local entry = table.remove(pendingQueue, 1)
-                if entry then
-                    executeParry()
-                    if #pendingQueue > 0 then
-                        task.wait(0.002 + (math.random(0, 4) / 1000))
-                    end
-                end
-            end
-            isProcessing = false
-        end)
-    end
-    
-    local function queueParry(ballId)
-        for _, id in ipairs(pendingQueue) do if id == ballId then return false end end
-        if #pendingQueue >= 15 then table.remove(pendingQueue, 1) end
-        table.insert(pendingQueue, ballId)
-        processQueue()
-        return true
-    end
-    
-    -- MAIN ENGINE
-    local frameCounter = 0
-    local frameSkipCount = 0
-    
-    local function shouldSkipFrame()
-        frameSkipCount = frameSkipCount + 1
-        local skipInterval = math.random(12, 50)
-        if frameSkipCount % skipInterval == 0 then
-            frameSkipCount = 0
-            return true
-        end
-        return false
-    end
-    
-    RunService.Heartbeat:Connect(function(heartbeatDt)
-        if isUnloading then return end
-        
-        frameCounter = frameCounter + 1
-        if shouldSkipFrame() then return end
-        
-        local character = localPlayer.Character
-        if not character or not character:FindFirstChild("HumanoidRootPart") then
-            if haloEnabled then
-                for _, seg in ipairs(ringParts) do
-                    seg.Position = Vector3.new(0, -1000, 0)
-                end
-            end
-            pcall(function()
-                for _, visuals in pairs(espContainers) do
-                    if visuals.Box then visuals.Box.Visible = false end
-                    if visuals.Name then visuals.Name.Visible = false end
-                    if visuals.Info then visuals.Info.Visible = false end
-                end
-            end)
-            return
-        end
-        
-        local hrp = character.HumanoidRootPart
-        local hrpPos = hrp.Position
-        local dt = math.max(heartbeatDt, 1/240)
-        
-        -- ESP
-        if frameCounter % 2 == 0 or math.random() > 0.7 then
-            pcall(function()
-                for p, visuals in pairs(espContainers) do
-                    local pChar = p.Character
-                    local pRoot = pChar and pChar:FindFirstChild("HumanoidRootPart")
-                    local pHead = pChar and pChar:FindFirstChild("Head")
-                    if pRoot and pHead then
-                        local headPos, headVis = Camera:WorldToViewportPoint(pHead.Position + Vector3.new(0, 0.8, 0))
-                        local footPos, footVis = Camera:WorldToViewportPoint(pRoot.Position - Vector3.new(0, 3.1, 0))
-                        if headVis or footVis then
-                            local height = math.abs(footPos.Y - headPos.Y)
-                            local width = height * 0.6
-                            local posX = headPos.X - (width / 2)
-                            local posY = headPos.Y
-                            if visuals.Box and espBoxEnabled then
-                                visuals.Box.Visible = true
-                                visuals.Box.Position = UDim2.new(0, posX, 0, posY)
-                                visuals.Box.Size = UDim2.new(0, width, 0, height)
-                            else
-                                if visuals.Box then visuals.Box.Visible = false end
-                            end
-                            local textOffsetY = posY - 18
-                            if visuals.Name and espNameEnabled then
-                                visuals.Name.Visible = true
-                                visuals.Name.Text = p.Name
-                                visuals.Name.Position = UDim2.new(0, headPos.X, 0, textOffsetY)
-                                textOffsetY = textOffsetY - 15
-                            else
-                                if visuals.Name then visuals.Name.Visible = false end
-                            end
-                            local studsDist = math.floor((hrpPos - pRoot.Position).Magnitude)
-                            if visuals.Info and espDistEnabled then
-                                visuals.Info.Visible = true
-                                visuals.Info.Text = "[" .. studsDist .. "s]"
-                                visuals.Info.Position = UDim2.new(0, headPos.X, 0, textOffsetY)
-                            else
-                                if visuals.Info then visuals.Info.Visible = false end
-                            end
-                        else
-                            if visuals.Box then visuals.Box.Visible = false end
-                            if visuals.Name then visuals.Name.Visible = false end
-                            if visuals.Info then visuals.Info.Visible = false end
+    -- ESP UPDATE
+    if frameCounter % 2 == 0 then
+        pcall(function()
+            for p, visuals in pairs(espContainers) do
+                local pChar = p.Character
+                local pRoot = pChar and pChar:FindFirstChild("HumanoidRootPart")
+                local pHead = pChar and pChar:FindFirstChild("Head")
+                if pRoot and pHead then
+                    local headPos, headVis = camera:WorldToViewportPoint(pHead.Position + Vector3.new(0, 0.8, 0))
+                    local footPos, footVis = camera:WorldToViewportPoint(pRoot.Position - Vector3.new(0, 3.1, 0))
+                    if headVis or footVis then
+                        local height = math.abs(footPos.Y - headPos.Y)
+                        local width = height * 0.6
+                        local posX = headPos.X - (width / 2)
+                        local posY = headPos.Y
+                        
+                        if visuals.Box then
+                            visuals.Box.Visible = true
+                            visuals.Box.Position = UDim2.new(0, posX, 0, posY)
+                            visuals.Box.Size = UDim2.new(0, width, 0, height)
+                        end
+                        
+                        local textOffsetY = posY - 18
+                        if visuals.Name then
+                            visuals.Name.Visible = true
+                            visuals.Name.Text = p.Name
+                            visuals.Name.Position = UDim2.new(0, headPos.X, 0, textOffsetY)
                         end
                     else
                         if visuals.Box then visuals.Box.Visible = false end
                         if visuals.Name then visuals.Name.Visible = false end
-                        if visuals.Info then visuals.Info.Visible = false end
-                    end
-                end
-            end)
-        end
-        
-        -- SPAM
-        if clashEnabled and UserInputService:IsKeyDown(Enum.KeyCode.T) then
-            if frameCounter % math.random(2, 4) == 0 then
-                queueParry("clash_" .. tostring(os.clock()))
-            end
-        end
-        
-        -- AUTO PARRY
-        if parryEnabled then
-            local balls = Workspace:FindFirstChild("Balls")
-            local imminentHaloRadius = 15
-            
-            if balls then
-                for _, ball in ipairs(balls:GetChildren()) do
-                    if ball:IsA("BasePart") then
-                        local currentPos = ball.Position
-                        local velocity = ball.AssemblyLinearVelocity
-                        local speed = velocity.Magnitude
-                        local currentRadius = calculateBallRadius(speed)
-                        local state = ballStates[ball]
-                        if not state then
-                            state = {lastTarget = nil, parriedThisTarget = false, lastPosition = currentPos, lastVelocity = velocity, smoothedAccel = Vector3.zero, processedEvents = {}, lastParryTime = 0}
-                            ballStates[ball] = state
-                        end
-                        if not ball.Parent then
-                            ballStates[ball] = nil
-                            break
-                        end
-                        local accelEstimation = (velocity - state.lastVelocity) / dt
-                        state.smoothedAccel = state.smoothedAccel:Lerp(accelEstimation, 0.3)
-                        local displacement = currentPos - state.lastPosition
-                        local segmentLength = displacement.Magnitude
-                        local distance3D = (hrpPos - currentPos).Magnitude
-                        if distance3D > (currentRadius + 140) then state.parriedThisTarget = false end
-                        local currentTarget = ball:GetAttribute("target")
-                        if currentTarget ~= state.lastTarget then
-                            state.lastTarget = currentTarget
-                            state.parriedThisTarget = false
-                        end
-                        local triggeredThisFrame = false
-                        local evaluatedTTI = math.huge
-                        if speed > 1 then
-                            local toPlayer = hrpPos - currentPos
-                            local aMagnitude = state.smoothedAccel.Magnitude
-                            local effectiveVel = velocity
-                            if aMagnitude > 5 then effectiveVel = velocity + (state.smoothedAccel * 0.1) end
-                            local vNorm = effectiveVel.Unit
-                            local projDist = toPlayer:Dot(vNorm)
-                            if projDist >= 0 then
-                                local closestPoint = currentPos + vNorm * projDist
-                                local perpDist = (closestPoint - hrpPos).Magnitude
-                                if perpDist <= currentRadius then
-                                    local approachDist = projDist - math.sqrt(math.max(0, (currentRadius * currentRadius) - (perpDist * perpDist)))
-                                    local predictedTime = approachDist / speed
-                                    if predictedTime <= 0.45 then
-                                        evaluatedTTI = predictedTime
-                                        triggeredThisFrame = true
-                                    end
-                                end
-                            end
-                        end
-                        if not triggeredThisFrame and speed > 1 and segmentLength > 0.001 then
-                            local r0 = state.lastPosition - hrpPos
-                            local v = displacement
-                            local a = v:Dot(v)
-                            if a > 0.001 then
-                                local b = 2 * r0:Dot(v)
-                                local c = r0:Dot(r0)
-                                local bestT = math.huge
-                                for sampleT = 0, 1, 0.125 do
-                                    local dynamicR = calculateBallRadius(speed * (1 - sampleT) + speed * sampleT)
-                                    local localC = c - (dynamicR * dynamicR)
-                                    local disc = (b * b) - (4 * a * localC)
-                                    if disc >= 0 then
-                                        local sqrtD = math.sqrt(disc)
-                                        local t1 = (-b - sqrtD) / (2 * a)
-                                        local t2 = (-b + sqrtD) / (2 * a)
-                                        if t1 >= 0 and t1 <= 1 and t1 < bestT then bestT = t1 end
-                                        if t2 >= 0 and t2 <= 1 and t2 < bestT then bestT = t2 end
-                                    end
-                                end
-                                if bestT <= 1 then
-                                    triggeredThisFrame = true
-                                    evaluatedTTI = bestT * dt
-                                end
-                            end
-                        end
-                        if not triggeredThisFrame and distance3D <= currentRadius then
-                            triggeredThisFrame = true
-                            evaluatedTTI = 0
-                        end
-                        if currentTarget == localPlayer.Name and triggeredThisFrame then
-                            if evaluatedTTI < imminentHaloRadius then imminentHaloRadius = currentRadius end
-                        end
-                        if parryEnabled and currentTarget == localPlayer.Name and not state.parriedThisTarget then
-                            if triggeredThisFrame then
-                                local eventKey = math.floor(evaluatedTTI * 100) .. "_" .. math.floor(distance3D)
-                                local eventProcessed = false
-                                for _, ev in ipairs(state.processedEvents) do
-                                    if ev == eventKey then eventProcessed = true break end
-                                end
-                                if not eventProcessed then
-                                    local success = queueParry(tostring(ball))
-                                    if success then
-                                        table.insert(state.processedEvents, eventKey)
-                                        if #state.processedEvents > 5 then table.remove(state.processedEvents, 1) end
-                                        state.parriedThisTarget = true
-                                        state.lastParryTime = os.clock()
-                                    end
-                                end
-                            end
-                        end
-                        state.lastPosition = currentPos
-                        state.lastVelocity = velocity
                     end
                 end
             end
-            for ballRef, state in pairs(ballStates) do
-                if not ballRef or not ballRef.Parent or ballRef.Parent ~= balls then
-                    ballStates[ballRef] = nil
+        end)
+    end
+    
+    -- AUTO PARRY
+    local balls = Workspace:FindFirstChild("Balls")
+    if balls then
+        for _, ball in ipairs(balls:GetChildren()) do
+            if ball:IsA("BasePart") then
+                local currentPos = ball.Position
+                local velocity = ball.AssemblyLinearVelocity
+                local speed = velocity.Magnitude
+                local currentRadius = calculateBallRadius(speed)
+                local state = ballStates[ball]
+                if not state then
+                    state = {lastTarget = nil, parriedThisTarget = false, lastPosition = currentPos, lastVelocity = velocity, smoothedAccel = Vector3.zero}
+                    ballStates[ball] = state
                 end
-            end
-        end
-        
-        -- HALO
-        if haloEnabled and character and character:FindFirstChild("HumanoidRootPart") then
-            local centerPos = Vector3.new(hrpPos.X, hrpPos.Y - 2.6, hrpPos.Z)
-            local haloRadius = 15
-            
-            local balls = Workspace:FindFirstChild("Balls")
-            if balls then
-                for _, ball in ipairs(balls:GetChildren()) do
-                    if ball:IsA("BasePart") then
-                        local ballPos = ball.Position
-                        local distance = (ballPos - hrpPos).Magnitude
-                        local speed = ball.AssemblyLinearVelocity.Magnitude
-                        local radius = calculateBallRadius(speed)
-                        if distance < radius + 20 then
-                            haloRadius = math.max(haloRadius, radius)
+                if not ball.Parent then
+                    ballStates[ball] = nil
+                    break
+                end
+                local distance3D = (hrpPos - currentPos).Magnitude
+                if distance3D > (currentRadius + 140) then state.parriedThisTarget = false end
+                local currentTarget = ball:GetAttribute("target")
+                if currentTarget ~= state.lastTarget then
+                    state.lastTarget = currentTarget
+                    state.parriedThisTarget = false
+                end
+                local triggeredThisFrame = false
+                if speed > 1 then
+                    local toPlayer = hrpPos - currentPos
+                    local vNorm = velocity.Unit
+                    local projDist = toPlayer:Dot(vNorm)
+                    if projDist >= 0 then
+                        local closestPoint = currentPos + vNorm * projDist
+                        local perpDist = (closestPoint - hrpPos).Magnitude
+                        if perpDist <= currentRadius then
+                            local approachDist = projDist - math.sqrt(math.max(0, (currentRadius * currentRadius) - (perpDist * perpDist)))
+                            local predictedTime = approachDist / speed
+                            if predictedTime <= 0.45 then
+                                triggeredThisFrame = true
+                            end
                         end
                     end
                 end
-            end
-            
-            for i, seg in ipairs(ringParts) do
-                local angle = (i / segments) * (math.pi * 2)
-                local x = centerPos.X + math.cos(angle) * haloRadius
-                local z = centerPos.Z + math.sin(angle) * haloRadius
-                seg.CFrame = CFrame.new(x, centerPos.Y, z, 
-                    math.cos(angle + math.pi/2), 0, math.sin(angle + math.pi/2),
-                    0, 1, 0,
-                    -math.sin(angle + math.pi/2), 0, math.cos(angle + math.pi/2)
-                )
-                seg.Transparency = 0.3
-            end
-        end
-    end)
-end
-
--- ==========================================
--- ACTIVATE UI
--- ==========================================
-screenGui.Enabled = true
-keyGui.BackgroundTransparency = 1
-keyGui.Position = UDim2.new(0.5, -190, 0.5, -130 + 30)
-animateUI(keyGui, {BackgroundTransparency = 0.15}, 0.5)
-animateUI(keyGui, {Position = UDim2.new(0.5, -190, 0.5, -130)}, 0.5)
-
--- KEY TOGGLE
-UserInputService.InputBegan:Connect(function(input, gpe)
-    if isUnloading then return end
-    if input.KeyCode == hideKey and not gpe then
-        if mainFrame and mainFrame.Parent then
-            if mainFrame.Visible then
-                animateUI(mainFrame, {BackgroundTransparency = 1}, 0.2)
-                task.wait(0.2)
-                mainFrame.Visible = false
-            else
-                mainFrame.Visible = true
-                mainFrame.BackgroundTransparency = 1
-                animateUI(mainFrame, {BackgroundTransparency = 0.15}, 0.2)
+                if not triggeredThisFrame and distance3D <= currentRadius then
+                    triggeredThisFrame = true
+                end
+                if currentTarget == player.Name and not state.parriedThisTarget then
+                    if triggeredThisFrame then
+                        queueParry()
+                        state.parriedThisTarget = true
+                    end
+                end
+                state.lastPosition = currentPos
+                state.lastVelocity = velocity
             end
         end
     end
 end)
+
+print("All features loaded successfully!")
